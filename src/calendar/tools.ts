@@ -42,7 +42,8 @@ export function getCalendarTools(): Tool[] {
       name: 'calendar_events',
       description:
         'List upcoming calendar events. Defaults to next 7 days on the primary calendar. ' +
-        'Returns event titles, times, locations, attendees, and IDs.',
+        'Returns event titles, times, locations, attendees, and IDs. ' +
+        'Use this when user asks "what\'s on my calendar", "any meetings today", "what do I have this week", etc.',
       input_schema: {
         type: 'object',
         properties: {
@@ -72,7 +73,7 @@ export function getCalendarTools(): Tool[] {
       name: 'calendar_get_event',
       description:
         'Get full details of a specific calendar event by ID. ' +
-        'Get event IDs from calendar_events results.',
+        'To find an event first, call calendar_events to list upcoming events, then use the event_id from the results.',
       input_schema: {
         type: 'object',
         properties: {
@@ -94,7 +95,8 @@ export function getCalendarTools(): Tool[] {
       name: 'calendar_create_event',
       description:
         'Create a new calendar event. Provide start and end as ISO 8601 datetime strings ' +
-        '(e.g. "2026-03-15T10:00:00-07:00"). Optionally add attendees as comma-separated emails.',
+        '(e.g. "2026-03-15T10:00:00-07:00"). Optionally add attendees as comma-separated emails. ' +
+        'Use this when user says "set up a call", "book a meeting", "schedule time", "add to calendar", etc.',
       input_schema: {
         type: 'object',
         properties: {

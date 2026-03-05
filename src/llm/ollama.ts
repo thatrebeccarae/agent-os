@@ -72,14 +72,19 @@ export function createOllamaProvider(model: string, name: string): LLMProvider {
           const jsonStart = text.indexOf('{', toolMatch.index);
           const jsonEnd = text.indexOf('```', jsonStart);
           const jsonStr = text.slice(jsonStart, jsonEnd).trim();
-          const parsed = JSON.parse(jsonStr) as { tool: string; input: Record<string, unknown> };
+          const parsed = JSON.parse(jsonStr) as { tool: string; input: unknown };
+
+          // Validate input is an object — local models sometimes emit strings
+          const input = (parsed.input !== null && typeof parsed.input === 'object' && !Array.isArray(parsed.input))
+            ? parsed.input as Record<string, unknown>
+            : {};
 
           const content: LLMContentBlock[] = [
             {
               type: 'tool_use',
               id: `ollama-${Date.now()}`,
               name: parsed.tool,
-              input: parsed.input ?? {},
+              input,
             },
           ];
 

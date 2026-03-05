@@ -12,7 +12,7 @@ import { startHealthServer, setTaskQueue as setServerTaskQueue } from './gateway
 import { TaskQueue } from './tasks/queue.js';
 import { TaskWorker } from './tasks/worker.js';
 import { Scheduler } from './tasks/scheduler.js';
-import { setTaskQueue as setToolsTaskQueue, setClaudeCodeExecutor } from './agent/tools.js';
+import { setTaskQueue as setToolsTaskQueue, setClaudeCodeExecutor, setRemoteControlManager } from './agent/tools.js';
 import { loadSkills } from './skills/loader.js';
 import { isSkillsEnabled } from './skills/config.js';
 import { isProactiveEnabled, isInboxMonitorEnabled, isCalendarMonitorEnabled, getOwnerSessionId } from './inbox/config.js';
@@ -21,6 +21,7 @@ import { DockerMonitor } from './inbox/docker-monitor.js';
 import { CalendarMonitor } from './inbox/calendar-monitor.js';
 import { ApprovalManager } from './claude-code/approvals.js';
 import { ClaudeCodeExecutor } from './claude-code/executor.js';
+import { RemoteControlManager } from './claude-code/remote.js';
 import { closeBrowser } from './browser/manager.js';
 import { setDashboardState } from './dashboard/api.js';
 import { startIntegrityChecker, stopIntegrityChecker } from './dashboard/integrity.js';
@@ -30,6 +31,7 @@ import { isMinifluxConfigured } from './miniflux/client.js';
 import { scheduleMorningDigest } from './miniflux/digest.js';
 import { setInjectionCallback, setHeightenedSecurity } from './security/content-boundary.js';
 import { PACKAGE_NAME } from './config/identity.js';
+import { setExtractStore } from './memory/extract.js';
 
 // ---------------------------------------------------------------------------
 // Validate env — at least one LLM backend must be available
@@ -51,6 +53,7 @@ if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY && !process.en
 // ---------------------------------------------------------------------------
 
 const store = new AgentStore();
+setExtractStore(store);
 const router = new LLMRouter();
 const allowedUsers = process.env.TELEGRAM_ALLOWED_USERS?.split(',').map((s) => s.trim()).filter(Boolean);
 const telegram = new TelegramChannel(TELEGRAM_BOT_TOKEN, allowedUsers);
@@ -161,6 +164,7 @@ if (isProactiveEnabled()) {
 // ---------------------------------------------------------------------------
 
 let claudeCodeExecutor: ClaudeCodeExecutor | null = null;
+let remoteControlManager: RemoteControlManager | null = null;
 
 if (isProactiveEnabled() && process.env.ANTHROPIC_API_KEY) {
   const ownerChatId = process.env.TELEGRAM_OWNER_CHAT_ID!;
@@ -199,6 +203,15 @@ if (isProactiveEnabled() && process.env.ANTHROPIC_API_KEY) {
 
   setClaudeCodeExecutor(claudeCodeExecutor);
   console.log('[claude-code] Executor ready — handoff_to_claude_code tool enabled');
+
+  // Remote Control manager — spawns `claude remote-control` on demand
+  remoteControlManager = new RemoteControlManager({
+    sendNotification: async (msg) => {
+      await gateway.sendToSession(ownerSessionId, msg);
+    },
+  });
+  setRemoteControlManager(remoteControlManager);
+  console.log('[remote-control] Manager ready — start_remote_session tool enabled');
 } else {
   if (!process.env.ANTHROPIC_API_KEY) {
     console.log('[claude-code] Executor disabled (no ANTHROPIC_API_KEY)');
@@ -303,6 +316,10 @@ async function shutdown(): Promise<void> {
   cancelDigest?.();
   await closeBrowser();
   stopIntegrityChecker();
+  if (remoteControlManager?.isActive()) {
+    console.log('[remote-control] Stopping active remote session');
+    remoteControlManager.stop();
+  }
   if (claudeCodeExecutor?.isActive()) {
     const info = claudeCodeExecutor.getActiveInfo();
     console.warn(`[claude-code] Aborting active session: "${info?.title}"`);

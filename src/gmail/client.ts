@@ -1,5 +1,5 @@
 import { gmail, type gmail_v1 } from '@googleapis/gmail';
-import { getOAuth2Client } from './auth.js';
+import { getOAuth2Client, type AccountId } from './auth.js';
 import { wrapAndDetect } from '../security/content-boundary.js';
 import { handleGoogleApiError } from '../google/errors.js';
 
@@ -8,8 +8,8 @@ const MAX_THREAD_MSG_CHARS = 2_000;
 const MAX_THREAD_MESSAGES = 25;
 const MAX_DECODE_DEPTH = 10;
 
-function getGmail(): gmail_v1.Gmail {
-  return gmail({ version: 'v1', auth: getOAuth2Client() });
+function getGmail(account?: AccountId): gmail_v1.Gmail {
+  return gmail({ version: 'v1', auth: getOAuth2Client(account) });
 }
 
 function stripHtml(html: string): string {
@@ -101,14 +101,14 @@ function handleGmailError(err: unknown): string {
  * Uses the Gmail History API for efficient delta detection.
  * Returns an array of message IDs (may be empty).
  */
-export async function listHistory(startHistoryId: string): Promise<string[]> {
+export async function listHistory(startHistoryId: string, account?: AccountId): Promise<string[]> {
   try {
-    const gmail = getGmail();
+    const g = getGmail(account);
     const messageIds: string[] = [];
     let pageToken: string | undefined;
 
     do {
-      const res = await gmail.users.history.list({
+      const res = await g.users.history.list({
         userId: 'me',
         startHistoryId,
         historyTypes: ['messageAdded'],
@@ -140,10 +140,10 @@ export async function listHistory(startHistoryId: string): Promise<string[]> {
   }
 }
 
-export async function getProfile(): Promise<string> {
+export async function getProfile(account?: AccountId): Promise<string> {
   try {
-    const gmail = getGmail();
-    const res = await gmail.users.getProfile({ userId: 'me' });
+    const g = getGmail(account);
+    const res = await g.users.getProfile({ userId: 'me' });
     return [
       `Email: ${res.data.emailAddress}`,
       `Total messages: ${res.data.messagesTotal}`,
@@ -155,10 +155,10 @@ export async function getProfile(): Promise<string> {
   }
 }
 
-export async function listLabels(): Promise<string> {
+export async function listLabels(account?: AccountId): Promise<string> {
   try {
-    const gmail = getGmail();
-    const res = await gmail.users.labels.list({ userId: 'me' });
+    const g = getGmail(account);
+    const res = await g.users.labels.list({ userId: 'me' });
     const labels = res.data.labels ?? [];
 
     // Fetch details — prioritize key system labels, then user labels
@@ -173,7 +173,7 @@ export async function listLabels(): Promise<string> {
     const results = await Promise.all(
       ordered.filter((l) => l.id).map(async (label) => {
         try {
-          const detail = await gmail.users.labels.get({ userId: 'me', id: label.id! });
+          const detail = await g.users.labels.get({ userId: 'me', id: label.id! });
           const unread = detail.data.messagesUnread ?? 0;
           const total = detail.data.messagesTotal ?? 0;
           if (total > 0) {
@@ -193,10 +193,10 @@ export async function listLabels(): Promise<string> {
   }
 }
 
-export async function searchMessages(query: string, maxResults = 10): Promise<string> {
+export async function searchMessages(query: string, maxResults = 10, account?: AccountId): Promise<string> {
   try {
-    const gmail = getGmail();
-    const res = await gmail.users.messages.list({
+    const g = getGmail(account);
+    const res = await g.users.messages.list({
       userId: 'me',
       q: query,
       maxResults: Math.min(maxResults, 50),
@@ -208,7 +208,7 @@ export async function searchMessages(query: string, maxResults = 10): Promise<st
     // Fetch all message metadata in parallel
     const results = await Promise.all(
       messages.filter((m) => m.id).map(async (msg) => {
-        const detail = await gmail.users.messages.get({
+        const detail = await g.users.messages.get({
           userId: 'me',
           id: msg.id!,
           format: 'metadata',
@@ -225,10 +225,10 @@ export async function searchMessages(query: string, maxResults = 10): Promise<st
   }
 }
 
-export async function readMessage(messageId: string): Promise<string> {
+export async function readMessage(messageId: string, account?: AccountId): Promise<string> {
   try {
-    const gmail = getGmail();
-    const res = await gmail.users.messages.get({
+    const g = getGmail(account);
+    const res = await g.users.messages.get({
       userId: 'me',
       id: messageId,
       format: 'full',
@@ -239,10 +239,10 @@ export async function readMessage(messageId: string): Promise<string> {
   }
 }
 
-export async function readThread(threadId: string): Promise<string> {
+export async function readThread(threadId: string, account?: AccountId): Promise<string> {
   try {
-    const gmail = getGmail();
-    const res = await gmail.users.threads.get({
+    const g = getGmail(account);
+    const res = await g.users.threads.get({
       userId: 'me',
       id: threadId,
       format: 'full',
@@ -274,9 +274,10 @@ export async function createDraft(
   subject: string,
   body: string,
   replyToMessageId?: string,
+  account?: AccountId,
 ): Promise<string> {
   try {
-    const gmail = getGmail();
+    const g = getGmail(account);
 
     // Build RFC 2822 message — strip newlines from subject to prevent header injection
     const safeSubject = subject.replace(/[\r\n]+/g, ' ');
@@ -289,7 +290,7 @@ export async function createDraft(
     let threadId: string | undefined;
     if (replyToMessageId) {
       // Fetch the original message to get threadId and Message-ID header
-      const original = await gmail.users.messages.get({
+      const original = await g.users.messages.get({
         userId: 'me',
         id: replyToMessageId,
         format: 'metadata',
@@ -306,7 +307,7 @@ export async function createDraft(
     lines.push('', body);
     const raw = Buffer.from(lines.join('\r\n')).toString('base64url');
 
-    const res = await gmail.users.drafts.create({
+    const res = await g.users.drafts.create({
       userId: 'me',
       requestBody: {
         message: {
@@ -322,10 +323,10 @@ export async function createDraft(
   }
 }
 
-export async function archiveMessage(messageId: string): Promise<string> {
+export async function archiveMessage(messageId: string, account?: AccountId): Promise<string> {
   try {
-    const gmail = getGmail();
-    await gmail.users.messages.modify({
+    const g = getGmail(account);
+    await g.users.messages.modify({
       userId: 'me',
       id: messageId,
       requestBody: {
@@ -342,10 +343,11 @@ export async function modifyLabels(
   messageId: string,
   addLabelIds: string[],
   removeLabelIds: string[],
+  account?: AccountId,
 ): Promise<string> {
   try {
-    const gmail = getGmail();
-    await gmail.users.messages.modify({
+    const g = getGmail(account);
+    await g.users.messages.modify({
       userId: 'me',
       id: messageId,
       requestBody: {

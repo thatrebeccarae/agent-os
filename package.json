@@ -1,5 +1,5 @@
 {
-  "name": "agent-os",
+  "name": "aouda",
   "version": "0.1.0",
   "description": "A security-first personal AI agent. Single-user, self-hosted.",
   "type": "module",

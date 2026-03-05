@@ -62,9 +62,9 @@ sedi() { sed -i '' "$@"; }
 # 1. identity.ts defaults — the main transformation target
 IDENTITY_FILE="${TARGET_DIR}/src/config/identity.ts"
 if [[ -f "$IDENTITY_FILE" ]]; then
-  sedi "s/|| 'TARS'/|| 'Agent'/g" "$IDENTITY_FILE"
+  sedi "s/|| 'Aouda'/|| 'Agent'/g" "$IDENTITY_FILE"
   sedi "s/|| 'Rebecca'/|| 'Operator'/g" "$IDENTITY_FILE"
-  sedi "s/|| 'tars-agent'/|| '${PACKAGE_NAME}'/g" "$IDENTITY_FILE"
+  sedi "s/|| 'aouda'/|| '${PACKAGE_NAME}'/g" "$IDENTITY_FILE"
   sedi "s/'agent-data'/'agent-data'/g" "$IDENTITY_FILE"
   log "  identity.ts defaults updated"
 else
@@ -76,27 +76,27 @@ PROMPT_FILE="${TARGET_DIR}/src/agent/prompt.ts"
 if [[ -f "$PROMPT_FILE" ]]; then
   # The fallback soul string in prompt.ts — after identity refactor it uses AGENT_NAME
   # but catch any remaining literal if refactor missed it
-  sedi 's/You are TARS/You are Agent/g' "$PROMPT_FILE"
+  sedi 's/You are Aouda/You are Agent/g' "$PROMPT_FILE"
 fi
 
 # 3. User-agent string in browser manager
 MANAGER_FILE="${TARGET_DIR}/src/browser/manager.ts"
 if [[ -f "$MANAGER_FILE" ]]; then
-  sedi 's/TarsAgent/PersonalAgent/g' "$MANAGER_FILE"
+  sedi 's/AoudaAgent/PersonalAgent/g' "$MANAGER_FILE"
 fi
 
-# 4. Package references across all .ts files
-find "${TARGET_DIR}/src" -name '*.ts' -exec \
-  sed -i '' "s/tars-agent/${PACKAGE_NAME}/g" {} +
+# 4. Package references across all .ts files (skip identity.ts — handled above)
+find "${TARGET_DIR}/src" -name '*.ts' ! -name 'identity.ts' -exec \
+  sed -i '' "s/aouda/${PACKAGE_NAME}/g" {} +
 
-# 5. Remaining TARS references in comments and strings (but not sync-public.sh itself)
-find "${TARGET_DIR}/src" -name '*.ts' -exec \
-  sed -i '' 's/TARS/Agent/g' {} +
+# 5. Remaining Aouda references in comments and strings (skip identity.ts — handled above)
+find "${TARGET_DIR}/src" -name '*.ts' ! -name 'identity.ts' -exec \
+  sed -i '' 's/Aouda/Agent/g' {} +
 
 # 6. Skills README
 SKILLS_README="${TARGET_DIR}/skills/README.md"
 if [[ -f "$SKILLS_README" ]]; then
-  sedi 's/TARS/Agent/g' "$SKILLS_README"
+  sedi 's/Aouda/Agent/g' "$SKILLS_README"
 fi
 
 # 7. package.json updates
@@ -123,7 +123,7 @@ if [[ -f "$SOUL_SOURCE" ]]; then
   cp "$SOUL_SOURCE" "${TARGET_DIR}/config/soul.example.md"
   # Strip personal references from the example
   sedi 's/Rebecca/Operator/g' "${TARGET_DIR}/config/soul.example.md"
-  sedi 's/TARS/Agent/g' "${TARGET_DIR}/config/soul.example.md"
+  sedi 's/Aouda/Agent/g' "${TARGET_DIR}/config/soul.example.md"
   log "  soul.example.md generated"
 fi
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PLIST_NAME="com.tars.agent.plist"
+PLIST_NAME="com.aouda.agent.plist"
 DEST="$HOME/Library/LaunchAgents/${PLIST_NAME}"
 
 if [ ! -f "$DEST" ]; then

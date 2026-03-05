@@ -70,6 +70,17 @@ export class Gateway {
   }
 
   /**
+   * Detect if a message is likely to trigger multi-tool workflows (capable tier).
+   * Mirrors the heuristics in llm/router.ts detectTier().
+   */
+  private looksCapable(text: string): boolean {
+    if (text.length > 150) return true;
+    if (/^\s*(show|check|find|get|read|send|create|set|update|run|trigger|schedule|draft|write|add|remove|delete|cancel|open|search|list|summarize|pull|fetch|move|copy|archive|forward|reply|respond|review|fix|debug|build|deploy|refactor|analyze|compare|merge|push|commit|organize)\b/i.test(text)) return true;
+    if (/\b(email|emails|inbox|gmail|draft|calendar|meeting|event|vault|note|task|workflow|claude|code|rss|feed|browser|repo)\b/i.test(text)) return true;
+    return false;
+  }
+
+  /**
    * Actual message processing implementation (called under per-session lock).
    */
   private async _handleMessage(
@@ -82,11 +93,31 @@ export class Gateway {
       `[gateway] ${inbound.channelType}/${inbound.senderName}: ${inbound.text.slice(0, 80)}${inbound.text.length > 80 ? '...' : ''}`,
     );
 
+    // Start typing indicator heartbeat (re-send every 4s — Telegram expires after 5s)
+    let typingInterval: ReturnType<typeof setInterval> | null = null;
+    if (channel.sendTypingIndicator) {
+      const channelId = inbound.channelId;
+      void channel.sendTypingIndicator(channelId);
+      typingInterval = setInterval(() => {
+        void channel.sendTypingIndicator!(channelId);
+      }, 4_000);
+    }
+
     try {
       // 1. Ensure session exists
       this.store.getOrCreateSession(sessionId);
 
-      // 2. Load session history and convert to LLM message format
+      // 2. Send immediate ack for messages that will take a while
+      if (this.looksCapable(inbound.text)) {
+        const ack: OutboundMessage = {
+          channelType: inbound.channelType,
+          channelId: inbound.channelId,
+          text: 'On it.',
+        };
+        await channel.sendMessage(ack);
+      }
+
+      // 3. Load session history and convert to LLM message format
       const storedMessages = this.store.getSessionMessages(sessionId);
       const sessionMessages: LLMMessage[] = storedMessages
         .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -95,18 +126,18 @@ export class Gateway {
           content: m.content,
         }));
 
-      // 3. Search memory for relevant context
+      // 4. Search memory for relevant context
       const memoryContext = this.buildMemoryContext(inbound.text);
 
-      // 4. Build system prompt
+      // 5. Build system prompt
       const systemPrompt = buildSystemPrompt({ memoryContext });
 
-      // 5. Wrap non-owner channel messages with content boundaries
+      // 6. Wrap non-owner channel messages with content boundaries
       const agentInput = inbound.channelType === 'slack'
         ? wrapExternalContent(inbound.text, `slack:${inbound.senderName}`)
         : inbound.text;
 
-      // 6. Run agent loop (pass sessionId so tools like create_task can link back)
+      // 7. Run agent loop (pass sessionId so tools like create_task can link back)
       const result = await runAgentLoop(
         this.router,
         agentInput,
@@ -117,7 +148,7 @@ export class Gateway {
         { sessionId },
       );
 
-      // 7. Save user message and assistant response to store (raw text, not wrapped)
+      // 8. Save user message and assistant response to store (raw text, not wrapped)
       this.store.appendMessage(sessionId, 'user', inbound.text);
       this.store.appendMessage(sessionId, 'assistant', result.response);
 
@@ -126,7 +157,7 @@ export class Gateway {
         this.store.appendMessage(sessionId, 'tool_result', tc.result, tc.name);
       }
 
-      // 8. Send response back via the channel
+      // 9. Send response back via the channel
       const responseWithMeta = result.provider !== 'ollama'
         ? `${result.response}\n\n_[${result.provider}/${result.model}]_`
         : result.response;
@@ -139,8 +170,8 @@ export class Gateway {
 
       await channel.sendMessage(outbound);
 
-      // 9. Fire-and-forget: extract memorable facts from this exchange
-      if (shouldExtract(sessionId)) {
+      // 10. Fire-and-forget: extract memorable facts from this exchange
+      if (shouldExtract(sessionId, inbound.text)) {
         // Build the recent exchange as LLMMessages for extraction
         const recentForExtraction: LLMMessage[] = [
           { role: 'user' as const, content: inbound.text },
@@ -161,6 +192,8 @@ export class Gateway {
       } catch {
         console.error('[gateway] Failed to send error message back to channel');
       }
+    } finally {
+      if (typingInterval) clearInterval(typingInterval);
     }
   }
 

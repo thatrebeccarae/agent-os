@@ -2,7 +2,7 @@
  * agent-browser wrapper — shells out to the `agent-browser` CLI
  * for LLM-optimized browser interaction via snapshot+refs workflow.
  *
- * Uses a persistent daemon session (named "tars") so refs and state
+ * Uses a persistent daemon session (named "aouda") so refs and state
  * survive between tool calls within a conversation.
  */
 

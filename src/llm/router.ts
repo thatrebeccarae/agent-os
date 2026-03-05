@@ -14,18 +14,55 @@ import { createOllamaProvider } from './ollama.js';
  *   max      → Claude Opus ($15/M) → Claude Sonnet → GPT-4o
  *
  * Override in message: @local, @haiku, @sonnet, @opus, @gemini, @gpt
+ *
+ * Rate limit handling:
+ *   On 429, retry the SAME provider after a delay (default 30s, or retry-after header).
+ *   Up to MAX_RATE_LIMIT_RETRIES before falling back to next provider.
+ *   This prevents mid-conversation model downgrades.
  */
+
+const MAX_RATE_LIMIT_RETRIES = 2;
+const DEFAULT_RETRY_DELAY_MS = 30_000;
 
 interface TierConfig {
   primary: LLMProvider;
   fallbacks: LLMProvider[];
 }
 
+/** Check if an error is a rate limit (429) or overload (529). */
+function isRateLimitError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\b429\b/.test(msg) || /rate.limit/i.test(msg) || /\b529\b/.test(msg) || /overloaded/i.test(msg);
+}
+
+/** Check if the error indicates a fully exhausted quota (limit: 0) — not worth retrying. */
+function isQuotaExhausted(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /limit:\s*0\b/.test(msg) || /exceeded your current quota/i.test(msg);
+}
+
+/** Extract retry delay from error message (Anthropic/OpenAI include retry-after hints). */
+function parseRetryDelay(err: unknown): number {
+  const msg = err instanceof Error ? err.message : String(err);
+  // Look for "retry in Xs" or "retry after Xs" patterns
+  const match = msg.match(/retry.+?(\d+(?:\.\d+)?)\s*s/i);
+  if (match) {
+    const seconds = Math.ceil(parseFloat(match[1]));
+    // Cap at 120s to avoid unreasonable waits
+    return Math.min(seconds * 1000, 120_000);
+  }
+  return DEFAULT_RETRY_DELAY_MS;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class LLMRouter {
   private tiers: Record<ModelTier, TierConfig>;
 
   constructor(ollamaModel?: string) {
-    const ollama = createOllamaProvider(ollamaModel ?? 'qwen2.5:7b', 'ollama-local');
+    const ollama = createOllamaProvider(ollamaModel ?? process.env.OLLAMA_MODEL ?? 'qwen3.5:9b', 'ollama-local');
 
     const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
     const hasOpenAI = !!process.env.OPENAI_API_KEY;
@@ -86,9 +123,48 @@ export class LLMRouter {
     try {
       return await config.primary.call(messages, systemPrompt, tools);
     } catch (err) {
+      // Rate limit on primary → retry with backoff before falling back
+      // Skip retries if quota is fully exhausted (limit: 0)
+      if (isRateLimitError(err) && !isQuotaExhausted(err)) {
+        const retryResult = await this.retryWithBackoff(
+          config.primary, messages, systemPrompt, tools,
+        );
+        if (retryResult) return retryResult;
+      }
+
       console.error(`[router] ${config.primary.name} failed:`, (err as Error).message);
       return this.callWithFallback(config, messages, systemPrompt, tools);
     }
+  }
+
+  /**
+   * Retry a provider after rate limit with exponential backoff.
+   * Returns the response if a retry succeeds, null if all retries exhausted.
+   */
+  private async retryWithBackoff(
+    provider: LLMProvider,
+    messages: LLMMessage[],
+    systemPrompt: string,
+    tools?: LLMToolDefinition[],
+  ): Promise<LLMResponse | null> {
+    for (let attempt = 1; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
+      const delay = DEFAULT_RETRY_DELAY_MS * attempt; // 30s, 60s
+      console.log(`[router] ${provider.name} rate-limited — retry ${attempt}/${MAX_RATE_LIMIT_RETRIES} in ${delay / 1000}s`);
+      await sleep(delay);
+
+      try {
+        return await provider.call(messages, systemPrompt, tools);
+      } catch (retryErr) {
+        if (!isRateLimitError(retryErr)) {
+          // Non-rate-limit error — stop retrying, fall through to fallback
+          console.error(`[router] ${provider.name} retry failed (non-rate-limit):`, (retryErr as Error).message);
+          return null;
+        }
+        console.warn(`[router] ${provider.name} still rate-limited after retry ${attempt}`);
+      }
+    }
+    console.warn(`[router] ${provider.name} retries exhausted — falling back`);
+    return null;
   }
 
   /**
@@ -112,18 +188,33 @@ export class LLMRouter {
     if (/@(haiku|gpt|gemini)\b/.test(text)) return 'cheap';
     if (/@local\b/.test(text)) return 'local';
 
-    // Escalate to capable tier if the message suggests complexity or tool use
-    const toolKeywords = /\b(search|create|read|write|run|edit|delete|update|find|list|execute|build|deploy|install|analyze|debug|fix|refactor|email|emails|inbox|gmail|draft|archive|unread|label|calendar|schedule|meeting|event|browse|navigate|screenshot|task|remind)\b/i;
-    if (text.length > 200 || toolKeywords.test(text)) return 'capable';
+    // Escalate to capable tier if the message suggests tool use or complex intent
 
-    // Short simple messages → local if Ollama available, else cheap
-    if (text.length < 100) return 'local';
+    // Imperative verbs that signal action
+    const startsWithAction = /^\s*(show|check|find|get|read|send|create|set|update|run|trigger|schedule|draft|write|add|remove|delete|cancel|open|search|list|summarize|pull|fetch|move|copy|archive|forward|reply|respond|review|fix|debug|build|deploy|refactor|analyze|compare|merge|push|commit|organize)\b/i;
+
+    // Domain nouns that imply tool use
+    const domainNouns = /\b(email|emails|inbox|gmail|draft|calendar|meeting|event|call|vault|note|notes|daily note|project|task|workflow|claude|code|rss|feed|digest|reminder|contact|repo|branch|pr|pull request|schedule|appointment|free time|busy|agenda|morning|pipeline|n8n|miniflux|browser|screenshot|website)\b/i;
+
+    // Questions from phone almost always need tools
+    const hasQuestion = text.includes('?');
+
+    // Long messages = complex intent
+    if (text.length > 150) return 'capable';
+    if (startsWithAction.test(text)) return 'capable';
+    if (domainNouns.test(text)) return 'capable';
+    if (hasQuestion && text.length > 15) return 'capable';
+    if (hasQuestion) return 'cheap';
+
+    // Short messages without action signals → local (cost savings)
+    if (text.length < 80) return 'local';
 
     return 'cheap';
   }
 
   /**
    * Try fallback providers after a failure.
+   * Rate-limited fallbacks also get retry attempts before moving to next.
    */
   private async callWithFallback(
     config: TierConfig,
@@ -137,6 +228,14 @@ export class LLMRouter {
         console.log(`[router] Fallback → ${provider.name}`);
         return await provider.call(messages, systemPrompt, tools);
       } catch (err) {
+        // Rate limit on fallback — retry before moving to next
+        // Skip retries if quota is fully exhausted (limit: 0)
+        if (isRateLimitError(err) && !isQuotaExhausted(err)) {
+          const retryResult = await this.retryWithBackoff(
+            provider, messages, systemPrompt, tools,
+          );
+          if (retryResult) return retryResult;
+        }
         console.error(`[router] ${provider.name} failed:`, (err as Error).message);
         continue;
       }

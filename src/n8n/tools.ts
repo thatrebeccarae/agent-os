@@ -37,25 +37,49 @@ export function getN8nTools(): Tool[] {
       name: 'n8n_trigger_workflow',
       description:
         'Trigger an n8n workflow via its production webhook URL. ' +
-        'Pass the workflow ID and optional data payload. ' +
+        'You can pass either a workflow_id OR a name (case-insensitive match). ' +
+        'If user says "trigger the morning digest", use name="morning digest". ' +
+        'To see available workflows, call n8n_list_workflows first. ' +
         'The workflow must have a Webhook trigger node to accept this.',
       input_schema: {
         type: 'object',
         properties: {
           workflow_id: {
             type: 'string',
-            description: 'Workflow ID to trigger',
+            description: 'Workflow ID to trigger (optional if name is provided)',
+          },
+          name: {
+            type: 'string',
+            description: 'Workflow name to find and trigger (case-insensitive, optional if workflow_id is provided)',
           },
           data: {
             type: 'object',
             description: 'Optional JSON data to send as the webhook body',
           },
         },
-        required: ['workflow_id'],
+        required: [],
       },
       handler: async (input) => {
-        const workflowId = input.workflow_id as string;
+        let workflowId = input.workflow_id as string | undefined;
         const data = input.data as Record<string, unknown> | undefined;
+
+        // Name-based lookup if no workflow_id provided
+        if (!workflowId) {
+          const name = input.name as string | undefined;
+          if (!name) {
+            return 'Error: provide either workflow_id or name to trigger a workflow.';
+          }
+          const workflows = await listWorkflows();
+          const match = workflows.find(
+            (w) => w.name.toLowerCase().includes(name.toLowerCase()),
+          );
+          if (!match) {
+            const available = workflows.map((w) => `  [${w.id}] ${w.name}`).join('\n');
+            return `No workflow matching "${name}". Available workflows:\n${available}`;
+          }
+          workflowId = match.id;
+          console.log(`[n8n] Resolved workflow name "${name}" → ID ${workflowId} ("${match.name}")`);
+        }
 
         const result = await triggerWebhook(workflowId, data);
         const summary =

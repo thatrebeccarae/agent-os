@@ -2,6 +2,14 @@ import type { LLMMessage } from '../llm/types.js';
 import type { LLMRouter } from '../llm/router.js';
 import type { AgentStore } from './store.js';
 
+// ── Store ref (set via init) ──────────────────────────────────────
+
+let _store: AgentStore | null = null;
+
+export function setExtractStore(store: AgentStore): void {
+  _store = store;
+}
+
 // ── Types ──────────────────────────────────────────────────────────
 
 type FactCategory = 'preference' | 'fact' | 'context' | 'instruction';
@@ -29,24 +37,46 @@ Rules:
 - If nothing is worth remembering, return an empty array: []
 - Return ONLY the JSON array, no other text`;
 
-// ── Counters for throttling ────────────────────────────────────────
+// ── Counters for throttling (persisted to SQLite) ─────────────────
 
 const sessionTurnCounts = new Map<string, number>();
 
 const EXTRACT_EVERY_N_TURNS = 5;
 
+function turnCountKey(sessionId: string): string {
+  return `extract_turns:${sessionId}`;
+}
+
 /**
  * Check whether extraction should run for this session turn.
  * Returns true every N turns to avoid over-extracting.
+ * Turn counts are persisted to SQLite so they survive daemon restarts.
  */
-export function shouldExtract(sessionId: string): boolean {
-  // Cap the map to avoid unbounded memory growth in long-running processes
+export function shouldExtract(sessionId: string, lastUserMessage?: string): boolean {
+  // Immediate extraction for explicit "remember" requests
+  if (lastUserMessage && /\bremember\b/i.test(lastUserMessage)) {
+    return true;
+  }
+
+  // Load from DB on first access for this session
+  if (!sessionTurnCounts.has(sessionId) && _store) {
+    const stored = _store.getInboxState(turnCountKey(sessionId));
+    if (stored) sessionTurnCounts.set(sessionId, Number(stored));
+  }
+
+  // Cap the map to avoid unbounded memory growth
   if (sessionTurnCounts.size > 100) {
     sessionTurnCounts.clear();
   }
 
   const count = (sessionTurnCounts.get(sessionId) ?? 0) + 1;
   sessionTurnCounts.set(sessionId, count);
+
+  // Persist to DB
+  if (_store) {
+    _store.setInboxState(turnCountKey(sessionId), String(count));
+  }
+
   return count % EXTRACT_EVERY_N_TURNS === 0;
 }
 

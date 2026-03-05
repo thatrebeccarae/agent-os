@@ -1,5 +1,5 @@
 import type { Tool } from '../agent/tools.js';
-import { isGmailConfigured } from './auth.js';
+import { isGmailConfigured, type AccountId } from './auth.js';
 import {
   getProfile,
   listLabels,
@@ -11,6 +11,20 @@ import {
   modifyLabels,
 } from './client.js';
 
+const ACCOUNT_PROP = {
+  type: 'string' as const,
+  enum: ['primary', 'secondary'],
+  description:
+    'Which inbox. Default: primary (operator@example.com — personal/business). ' +
+    'Use "secondary" for hello@example.com (inbound/public-facing).',
+};
+
+function acct(input: Record<string, unknown>): AccountId | undefined {
+  const v = input.account as string | undefined;
+  if (v === 'primary' || v === 'secondary') return v;
+  return undefined; // defaults to primary in client
+}
+
 export function getGmailTools(): Tool[] {
   if (!isGmailConfigured()) return [];
 
@@ -18,8 +32,12 @@ export function getGmailTools(): Tool[] {
     {
       name: 'gmail_get_profile',
       description: 'Get Gmail mailbox info — email address, message count, thread count.',
-      input_schema: { type: 'object', properties: {}, required: [] },
-      handler: async () => getProfile(),
+      input_schema: {
+        type: 'object',
+        properties: { account: ACCOUNT_PROP },
+        required: [],
+      },
+      handler: async (input) => getProfile(acct(input)),
     },
     {
       name: 'gmail_list_labels',
@@ -27,8 +45,12 @@ export function getGmailTools(): Tool[] {
         'List all Gmail labels with message counts and unread counts. ' +
         'Use this to get unread counts, total message counts, or understand mailbox organization. ' +
         'This is the right tool for "how many unread emails" questions — gmail_search only returns a page of results, not totals.',
-      input_schema: { type: 'object', properties: {}, required: [] },
-      handler: async () => listLabels(),
+      input_schema: {
+        type: 'object',
+        properties: { account: ACCOUNT_PROP },
+        required: [],
+      },
+      handler: async (input) => listLabels(acct(input)),
     },
     {
       name: 'gmail_search',
@@ -44,25 +66,27 @@ export function getGmailTools(): Tool[] {
             type: 'number',
             description: 'Max messages to return (default 10, max 50)',
           },
+          account: ACCOUNT_PROP,
         },
         required: ['query'],
       },
       handler: async (input) =>
-        searchMessages(input.query as string, (input.max_results as number) ?? 10),
+        searchMessages(input.query as string, (input.max_results as number) ?? 10, acct(input)),
     },
     {
       name: 'gmail_read',
       description:
         'Read a specific email message by ID. Returns full headers and body. ' +
-        'Get message IDs from gmail_search results.',
+        'To find a message first, call gmail_search with a query, then use the message_id from the results.',
       input_schema: {
         type: 'object',
         properties: {
           message_id: { type: 'string', description: 'Gmail message ID' },
+          account: ACCOUNT_PROP,
         },
         required: ['message_id'],
       },
-      handler: async (input) => readMessage(input.message_id as string),
+      handler: async (input) => readMessage(input.message_id as string, acct(input)),
     },
     {
       name: 'gmail_read_thread',
@@ -73,10 +97,11 @@ export function getGmailTools(): Tool[] {
         type: 'object',
         properties: {
           thread_id: { type: 'string', description: 'Gmail thread ID' },
+          account: ACCOUNT_PROP,
         },
         required: ['thread_id'],
       },
-      handler: async (input) => readThread(input.thread_id as string),
+      handler: async (input) => readThread(input.thread_id as string, acct(input)),
     },
     {
       name: 'gmail_create_draft',
@@ -93,6 +118,7 @@ export function getGmailTools(): Tool[] {
             type: 'string',
             description: 'Message ID to reply to (optional — threads the reply)',
           },
+          account: ACCOUNT_PROP,
         },
         required: ['to', 'subject', 'body'],
       },
@@ -102,6 +128,7 @@ export function getGmailTools(): Tool[] {
           input.subject as string,
           input.body as string,
           input.reply_to_message_id as string | undefined,
+          acct(input),
         ),
     },
     {
@@ -111,10 +138,11 @@ export function getGmailTools(): Tool[] {
         type: 'object',
         properties: {
           message_id: { type: 'string', description: 'Gmail message ID to archive' },
+          account: ACCOUNT_PROP,
         },
         required: ['message_id'],
       },
-      handler: async (input) => archiveMessage(input.message_id as string),
+      handler: async (input) => archiveMessage(input.message_id as string, acct(input)),
     },
     {
       name: 'gmail_label',
@@ -135,6 +163,7 @@ export function getGmailTools(): Tool[] {
             items: { type: 'string' },
             description: 'Label IDs to remove (optional)',
           },
+          account: ACCOUNT_PROP,
         },
         required: ['message_id'],
       },
@@ -143,6 +172,7 @@ export function getGmailTools(): Tool[] {
           input.message_id as string,
           (input.add_labels as string[]) ?? [],
           (input.remove_labels as string[]) ?? [],
+          acct(input),
         ),
     },
   ];

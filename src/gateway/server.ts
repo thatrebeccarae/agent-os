@@ -29,6 +29,37 @@ export function startHealthServer(store: AgentStore): Server {
   // JSON body parsing for webhook endpoints
   app.use(express.json());
 
+  // ── Dashboard auth middleware ──────────────────────────────────
+  const dashboardToken = process.env.DASHBOARD_TOKEN;
+  if (!dashboardToken) {
+    console.warn('[auth] DASHBOARD_TOKEN not set — dashboard API is publicly accessible');
+  }
+  app.use((req, res, next) => {
+    // Public routes: health, version, webhook (has own auth), OAuth flow
+    if (req.path === '/health' || req.path === '/version' ||
+        req.path.startsWith('/webhook/') || req.path.startsWith('/oauth/')) {
+      return next();
+    }
+    if (!dashboardToken) return next();
+
+    // Check Bearer token in Authorization header
+    const authHeader = req.headers.authorization ?? '';
+    const expected = `Bearer ${dashboardToken}`;
+    if (authHeader.length === expected.length &&
+        timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))) {
+      return next();
+    }
+
+    // Fallback: ?token= query param (for browser access)
+    const queryToken = (req.query.token as string) ?? '';
+    if (queryToken.length === dashboardToken.length &&
+        timingSafeEqual(Buffer.from(queryToken), Buffer.from(dashboardToken))) {
+      return next();
+    }
+
+    res.status(401).json({ error: 'Unauthorized' });
+  });
+
   // Parse package version at startup
   let version = 'unknown';
   try {

@@ -101,13 +101,20 @@ export class TaskWorker {
       this.queue.completeTask(task.id, result);
 
       if (task.sessionId) {
-        const summary = result.length > RESULT_SUMMARY_MAX_CHARS
-          ? result.slice(0, RESULT_SUMMARY_MAX_CHARS) + '...'
-          : result;
-        await this.notifyCallback(
-          task.sessionId,
-          `Task completed: ${task.title}\n\n${summary}`,
-        );
+        // Suppress notification for system tasks that found nothing actionable
+        const isQuiet = task.source === 'system'
+          && /no (urgent|actionable)|no emails need attention/i.test(result);
+        if (!isQuiet) {
+          const summary = result.length > RESULT_SUMMARY_MAX_CHARS
+            ? result.slice(0, RESULT_SUMMARY_MAX_CHARS) + '...'
+            : result;
+          await this.notifyCallback(
+            task.sessionId,
+            `Task completed: ${task.title}\n\n${summary}`,
+          );
+        } else {
+          console.log(`[worker] Task #${task.id} completed silently (nothing actionable)`);
+        }
       }
 
       console.log(`[worker] Task #${task.id} completed`);

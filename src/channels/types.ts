@@ -25,4 +25,6 @@ export interface ChannelAdapter {
   stop(): Promise<void>;
   sendMessage(msg: OutboundMessage): Promise<void>;
   onMessage(handler: (msg: InboundMessage) => Promise<void>): void;
+  /** Send a "typing" indicator to a channel (optional — not all platforms support it). */
+  sendTypingIndicator?(channelId: string): Promise<void>;
 }

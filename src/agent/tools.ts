@@ -5,7 +5,7 @@ import type { LLMToolDefinition } from '../llm/types.js';
 import { executeCommand, checkDockerAvailability } from '../sandbox/executor.js';
 import type { TaskQueue } from '../tasks/queue.js';
 import type { TaskStatus, TaskTier } from '../tasks/types.js';
-import { VAULT_BASE_PATH, OPERATOR_NAME } from '../config/identity.js';
+import { VAULT_BASE_PATH, OPERATOR_NAME, REPO_ALIASES, DEFAULT_REPO_PATH } from '../config/identity.js';
 
 /** Context passed to tool handlers for session-aware operations. */
 export interface ToolContext {
@@ -50,8 +50,11 @@ async function resolveWorkspacePath(filePath: string): Promise<string> {
 const VAULT_WRITABLE_PREFIXES = [
   path.join(VAULT_DIR, '01-Inbox'),
   path.join(VAULT_DIR, '02-Projects'),
+  path.join(VAULT_DIR, '03-Areas'),
+  path.join(VAULT_DIR, '05-Archive'),
   path.join(VAULT_DIR, '06-Daily'),
   path.join(VAULT_DIR, '07-Meetings'),
+  path.join(VAULT_DIR, '08-People'),
 ];
 
 async function resolveVaultReadPath(filePath: string): Promise<string> {
@@ -106,6 +109,20 @@ export function setClaudeCodeExecutor(executor: ClaudeCodeExecutor): void {
 function getClaudeCodeExecutor(): ClaudeCodeExecutor {
   if (!_claudeCodeExecutor) throw new Error('ClaudeCodeExecutor not initialized — call setClaudeCodeExecutor() first');
   return _claudeCodeExecutor;
+}
+
+// ── Lazy RemoteControlManager reference (set after init) ─────────────
+import type { RemoteControlManager } from '../claude-code/remote.js';
+
+let _remoteControlManager: RemoteControlManager | null = null;
+
+export function setRemoteControlManager(manager: RemoteControlManager): void {
+  _remoteControlManager = manager;
+}
+
+function getRemoteControlManager(): RemoteControlManager {
+  if (!_remoteControlManager) throw new Error('RemoteControlManager not initialized — call setRemoteControlManager() first');
+  return _remoteControlManager;
 }
 
 export const toolRegistry = new Map<string, Tool>();
@@ -178,7 +195,7 @@ async function searchSearXNG(query: string, baseUrl: string): Promise<SearchResu
 async function searchDuckDuckGo(query: string): Promise<SearchResult[]> {
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
   const res = await fetchWithTimeout(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TarsAgent/1.0)' },
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AgentAgent/1.0)' },
   });
   if (!res.ok) throw new Error(`DuckDuckGo returned ${res.status}: ${res.statusText}`);
   const html = await res.text();
@@ -301,7 +318,8 @@ register({
   description:
     `Read a file from the vault (${VAULT_BASE_PATH}). Path is relative to vault root. ` +
     'Use this to access projects, daily notes, research, contacts, and all shared context. ' +
-    'Examples: "02-Projects/agent-os/_index.md", "06-Daily/2026-03-01.md", "09-Profile/voice-guide.md"',
+    'If you don\'t know the exact path, call vault_search first to find it. ' +
+    'Examples: "02-Projects/aouda/_index.md", "06-Daily/2026-03-01.md", "09-Profile/voice-guide.md"',
   input_schema: {
     type: 'object',
     properties: {
@@ -331,9 +349,9 @@ register({
 register({
   name: 'vault_write',
   description:
-    'Write or update a file in safe vault directories (01-Inbox, 02-Projects, 06-Daily, 07-Meetings). ' +
+    'Write or update a file in safe vault directories (01-Inbox, 02-Projects, 03-Areas, 05-Archive, 06-Daily, 07-Meetings, 08-People). ' +
     'Path is relative to vault root. Creates parent directories as needed. ' +
-    'Cannot write to other vault areas (03-Areas, 04-Resources, etc.) for safety.',
+    'Cannot write to 00-Dashboard, 04-Resources, 09-Profile, or Meta for safety.',
   input_schema: {
     type: 'object',
     properties: {
@@ -354,7 +372,8 @@ register({
   name: 'vault_search',
   description:
     'Search the vault for files matching a query. Returns file paths containing the search term. ' +
-    'Searches file names and content. Useful for finding notes, projects, or references.',
+    'Searches file names and content. Use this FIRST when the user refers to something by name ' +
+    'without a full path (e.g. "the clay project", "my meeting notes", "that article about AI").',
   input_schema: {
     type: 'object',
     properties: {
@@ -628,10 +647,13 @@ for (const tool of getN8nTools()) {
 register({
   name: 'handoff_to_claude_code',
   description:
-    'Delegate a development task to a local Claude Code agent. ' +
-    'The agent has full codebase access (Read, Edit, Bash, etc.) and will ' +
-    `work autonomously. Approval requests route to ${OPERATOR_NAME} via Telegram. ` +
-    'Returns immediately — results are delivered asynchronously.',
+    'Delegate ANY coding or file task to a local Claude Code agent. ' +
+    'The agent has full filesystem access within allowed paths. ' +
+    `Approval requests route to ${OPERATOR_NAME} via Telegram. ` +
+    'Use the "repo" parameter with a short alias (e.g. "clay", "aouda") instead of a full path. ' +
+    'Known aliases: ' + Object.keys(REPO_ALIASES).join(', ') + '. ' +
+    'Call this when the user asks to fix, build, refactor, or deploy code — ' +
+    'you do NOT need to wait for the exact phrase "hand off to Claude Code".',
   input_schema: {
     type: 'object',
     properties: {
@@ -640,17 +662,38 @@ register({
         type: 'string',
         description: 'What to do and why. Include acceptance criteria and constraints.',
       },
+      repo: {
+        type: 'string',
+        description: `Short repo alias: ${Object.keys(REPO_ALIASES).join(', ')}`,
+      },
       repo_path: {
         type: 'string',
-        description: `Absolute path to the repository. E.g., ${VAULT_BASE_PATH}/Repos.nosync/clay-crm`,
+        description: 'Absolute path to the repository (optional — prefer "repo" alias instead)',
       },
     },
-    required: ['title', 'description', 'repo_path'],
+    required: ['title', 'description'],
   },
   handler: async (input) => {
     const title = input.title as string;
     const description = input.description as string;
-    const repoPath = input.repo_path as string;
+
+    // Resolve repo path: explicit repo_path > alias > default
+    let repoPath: string;
+    if (input.repo_path) {
+      repoPath = input.repo_path as string;
+    } else if (input.repo) {
+      const alias = (input.repo as string).toLowerCase();
+      const resolved = REPO_ALIASES[alias];
+      if (!resolved) {
+        const known = Object.entries(REPO_ALIASES)
+          .map(([k, v]) => `  ${k} → ${v}`)
+          .join('\n');
+        return `Unknown repo alias "${input.repo}". Known aliases:\n${known}`;
+      }
+      repoPath = resolved;
+    } else {
+      repoPath = DEFAULT_REPO_PATH;
+    }
 
     let executor: ClaudeCodeExecutor;
     try {
@@ -661,11 +704,94 @@ register({
 
     try {
       executor.dispatch({ title, description, repoPath });
-      return `Dispatched Claude Code task: "${title}". I'll send updates and results to Telegram.`;
+      return `Dispatched Claude Code task: "${title}" in ${repoPath}. I'll send updates and results to Telegram.`;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return `Error dispatching Claude Code task: ${msg}`;
     }
+  },
+});
+
+// ── Remote Control tools ─────────────────────────────────────────────
+
+register({
+  name: 'start_remote_session',
+  description:
+    'Start an interactive Claude Code Remote Control session and return a URL. ' +
+    'Open the URL on your phone or any browser to control a Claude Code session running locally. ' +
+    'Use the "repo" parameter with a short alias (e.g. "clay", "aouda") to set the working directory. ' +
+    'Known aliases: ' + Object.keys(REPO_ALIASES).join(', ') + '. ' +
+    'Only one remote session can be active at a time.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      repo: {
+        type: 'string',
+        description: `Short repo alias: ${Object.keys(REPO_ALIASES).join(', ')}`,
+      },
+      repo_path: {
+        type: 'string',
+        description: 'Absolute path to working directory (optional — prefer "repo" alias)',
+      },
+    },
+    required: [],
+  },
+  handler: async (input) => {
+    let manager: RemoteControlManager;
+    try {
+      manager = getRemoteControlManager();
+    } catch {
+      return 'Error: Remote Control not available. Requires Telegram + claude CLI authentication.';
+    }
+
+    // Resolve repo path: explicit repo_path > alias > default
+    let repoPath: string;
+    if (input.repo_path) {
+      repoPath = input.repo_path as string;
+    } else if (input.repo) {
+      const alias = (input.repo as string).toLowerCase();
+      const resolved = REPO_ALIASES[alias];
+      if (!resolved) {
+        const known = Object.entries(REPO_ALIASES)
+          .map(([k, v]) => `  ${k} → ${v}`)
+          .join('\n');
+        return `Unknown repo alias "${input.repo}". Known aliases:\n${known}`;
+      }
+      repoPath = resolved;
+    } else {
+      repoPath = DEFAULT_REPO_PATH;
+    }
+
+    try {
+      const url = await manager.start(repoPath);
+      return `Remote Control session started!\n\nURL: ${url}\n\nOpen this on your phone or any browser. Working directory: ${repoPath}`;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return `Error starting remote session: ${msg}`;
+    }
+  },
+});
+
+register({
+  name: 'stop_remote_session',
+  description:
+    'Stop the active Claude Code Remote Control session. The session URL becomes invalid.',
+  input_schema: { type: 'object', properties: {}, required: [] },
+  handler: async () => {
+    let manager: RemoteControlManager;
+    try {
+      manager = getRemoteControlManager();
+    } catch {
+      return 'Error: Remote Control not available.';
+    }
+
+    if (!manager.isActive()) {
+      return 'No active remote session to stop.';
+    }
+
+    const info = manager.getInfo();
+    manager.stop();
+    return `Remote Control session stopped. (was: ${info?.url})`;
   },
 });
 

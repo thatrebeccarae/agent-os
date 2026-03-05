@@ -21,14 +21,15 @@ export const CLAUDE_CODE_ALLOWED_PATHS: string[] = process.env.CLAUDE_CODE_ALLOW
     ];
 
 /** Package name for log prefixes. */
-export const PACKAGE_NAME = process.env.PACKAGE_NAME || 'agent-os';
+export const PACKAGE_NAME = process.env.PACKAGE_NAME || 'aouda';
 
 /** Default repo path for Claude Code handoffs when no repo specified. */
-export const DEFAULT_REPO_PATH = process.env.DEFAULT_REPO_PATH || path.join(REPOS_BASE, 'agent-os');
+export const DEFAULT_REPO_PATH = process.env.DEFAULT_REPO_PATH || path.join(REPOS_BASE, 'aouda-dev');
 
 /** Map of short aliases to absolute repo paths. Extensible via REPO_ALIASES env var ("alias=path,alias2=path2"). */
 export const REPO_ALIASES: Record<string, string> = {
-  'agent-os': path.join(REPOS_BASE, 'agent-os'),
+  'aouda': path.join(REPOS_BASE, 'aouda-dev'),
+  'aouda-dev': path.join(REPOS_BASE, 'aouda-dev'),
   'clay': path.join(REPOS_BASE, 'clay-crm'),
   'clay-crm': path.join(REPOS_BASE, 'clay-crm'),
   // Merge env overrides

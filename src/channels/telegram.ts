@@ -133,6 +133,15 @@ export class TelegramChannel implements ChannelAdapter {
     this.callbackHandler = handler;
   }
 
+  /** Send a "typing" indicator to a chat. */
+  async sendTypingIndicator(channelId: string): Promise<void> {
+    try {
+      await this.bot.api.sendChatAction(channelId, 'typing');
+    } catch {
+      // Non-fatal — typing indicators are best-effort
+    }
+  }
+
   /** Expose the grammy Bot instance (for direct API use, e.g. inline keyboards). */
   getBot(): Bot {
     return this.bot;
