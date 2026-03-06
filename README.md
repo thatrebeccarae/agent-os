@@ -278,7 +278,6 @@ src/
   config/               # Identity constants
 config/
   soul.example.md       # Personality template
-  soul.md               # Your personality config (git-ignored)
 skills/                 # Drop-in skill plugins
 ```
 
