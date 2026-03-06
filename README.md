@@ -57,7 +57,9 @@ pragmatic, and the personality is configurable. Fork it, gut it, make it yours.
 
 ## Architecture
 
+<div align="center">
 <img src="assets/architecture.png" alt="Aouda architecture" width="760">
+</div>
 
 ---
 
