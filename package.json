@@ -1,7 +1,7 @@
 {
   "name": "aouda",
   "version": "0.1.0",
-  "description": "A security-first personal AI agent. Single-user, self-hosted.",
+  "description": "Aouda — security-first personal AI agent. 42 tools, 11 dependencies, TypeScript, Telegram-native, OWASP ASI-aligned. Gmail, Calendar, browser automation, RSS, n8n workflows, Claude Code handoff. Single-user, self-hosted.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

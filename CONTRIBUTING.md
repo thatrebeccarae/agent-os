@@ -1,4 +1,4 @@
-# Contributing to Agent OS
+# Contributing to Aouda
 
 ## Development Setup
 
@@ -12,8 +12,8 @@
 ### Getting Started
 
 ```bash
-git clone https://github.com/<your-fork>/agent-os.git
-cd agent-os
+git clone https://github.com/<your-fork>/aouda.git
+cd aouda
 pnpm install
 cp .env.example .env
 # Edit .env — set TELEGRAM_BOT_TOKEN and at least one LLM API key

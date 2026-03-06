@@ -1,4 +1,4 @@
-# Deploying Agent OS
+# Deploying Aouda
 
 ## Prerequisites
 
@@ -72,17 +72,17 @@ bash scripts/uninstall-service.sh
 
 ## Linux (systemd)
 
-Create a systemd unit file at `/etc/systemd/system/agent-os.service`:
+Create a systemd unit file at `/etc/systemd/system/aouda.service`:
 
 ```ini
 [Unit]
-Description=Agent OS
+Description=Aouda
 After=network.target
 
 [Service]
 Type=simple
 User=<your-user>
-WorkingDirectory=/path/to/agent-os
+WorkingDirectory=/path/to/aouda
 ExecStart=/usr/bin/npx tsx src/index.ts
 Restart=always
 RestartSec=10
@@ -98,23 +98,23 @@ If you have built the project, use the compiled output instead:
 ExecStart=/usr/bin/node dist/index.js
 ```
 
-The `.env` file must be in the `WorkingDirectory`. Alternatively, use `EnvironmentFile=/path/to/agent-os/.env` in the unit file.
+The `.env` file must be in the `WorkingDirectory`. Alternatively, use `EnvironmentFile=/path/to/aouda/.env` in the unit file.
 
 ### Manage the service
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable agent-os
-sudo systemctl start agent-os
+sudo systemctl enable aouda
+sudo systemctl start aouda
 
 # Check status
-systemctl status agent-os
+systemctl status aouda
 
 # View logs
-journalctl -u agent-os -f
+journalctl -u aouda -f
 
 # Restart
-sudo systemctl restart agent-os
+sudo systemctl restart aouda
 ```
 
 ---
@@ -137,8 +137,8 @@ CMD ["node", "dist/index.js"]
 ### Build and run
 
 ```bash
-docker build -t agent-os .
-docker run -d --name agent-os --env-file .env --restart unless-stopped agent-os
+docker build -t aouda .
+docker run -d --name aouda --env-file .env --restart unless-stopped aouda
 ```
 
 ### docker-compose
@@ -146,7 +146,7 @@ docker run -d --name agent-os --env-file .env --restart unless-stopped agent-os
 ```yaml
 version: "3.8"
 services:
-  agent-os:
+  aouda:
     build: .
     env_file: .env
     restart: unless-stopped
@@ -287,8 +287,8 @@ The dashboard endpoint also serves as a health check. A `200` response on `/` me
 ### Logs
 
 - **macOS (launchd):** `/tmp/aouda.log` (or as configured in the plist)
-- **Linux (systemd):** `journalctl -u agent-os -f`
-- **Docker:** `docker logs -f agent-os`
+- **Linux (systemd):** `journalctl -u aouda -f`
+- **Docker:** `docker logs -f aouda`
 
 ---
 
@@ -297,7 +297,7 @@ The dashboard endpoint also serves as a health check. A `200` response on `/` me
 ### macOS (launchd)
 
 ```bash
-cd /path/to/agent-os
+cd /path/to/aouda
 git pull
 pnpm install
 pnpm build
@@ -307,17 +307,17 @@ launchctl kickstart -k gui/$(id -u)/com.aouda.agent
 ### Linux (systemd)
 
 ```bash
-cd /path/to/agent-os
+cd /path/to/aouda
 git pull
 pnpm install
 pnpm build
-sudo systemctl restart agent-os
+sudo systemctl restart aouda
 ```
 
 ### Docker
 
 ```bash
-cd /path/to/agent-os
+cd /path/to/aouda
 git pull
 docker compose build
 docker compose up -d

@@ -1,10 +1,10 @@
 # Security
 
-Agent OS is a personal AI agent with real capabilities: file I/O, command execution, browser automation, email access, and code generation. This document describes the security model, threat model, and defense mechanisms in detail.
+Aouda is a personal AI agent with real capabilities: file I/O, command execution, browser automation, email access, and code generation. This document describes the security model, threat model, and defense mechanisms in detail.
 
 ## Security Model
 
-Agent OS is designed as a **single-user, single-operator** system. The operator (you) is the only trusted principal. Everything else is untrusted:
+Aouda is designed as a **single-user, single-operator** system. The operator (you) is the only trusted principal. Everything else is untrusted:
 
 - Incoming emails
 - Web pages and search results
@@ -224,7 +224,7 @@ Mapped against the [OWASP Top 10 for Agentic Applications](https://genai.owasp.o
 
 ## Single-User Security Rationale
 
-Agent OS is deliberately single-user. This is a security decision, not a limitation.
+Aouda is deliberately single-user. This is a security decision, not a limitation.
 
 **Multi-tenant AI agents are an unsolved problem.** When an agent has access to files, email, and command execution, isolating one user's context from another requires solving prompt injection perfectly — which no one has done. A shared-context agent serving multiple users turns every prompt injection vulnerability into a cross-tenant data breach.
 
@@ -256,7 +256,7 @@ These are real constraints. Treat them accordingly.
 
 ## Responsible Disclosure
 
-If you discover a security vulnerability in Agent OS:
+If you discover a security vulnerability in Aouda:
 
 - **Report via GitHub Security Advisories:** [github.com/thatrebeccarae/aouda/security/advisories](https://github.com/thatrebeccarae/aouda/security/advisories)
 - **Response time:** 48 hours for acknowledgment, 7 days for a fix plan

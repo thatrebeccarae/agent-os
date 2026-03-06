@@ -36,4 +36,4 @@ Initial pre-release. The agent has been running in production for the maintainer
 - **Security: sandbox** — Docker-based and lightweight command execution with allowlists
 - **Security: OAuth token redaction** in logs and LLM context
 - **42 tools** across core, Gmail, Calendar, browser, RSS, n8n, and infrastructure
-- **~9.5K lines of TypeScript** (ESM, Node >= 22)
+- **9,500 lines of TypeScript** across 60 files (ESM, Node >= 22)
