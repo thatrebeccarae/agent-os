@@ -26,13 +26,13 @@ git clone https://github.com/thatrebeccarae/aouda.git
 <br>
 <br>
 
-[Why Aouda](#why-i-built-aouda) · [Philosophy](#philosophy) · [Comparison](#how-aouda-compares) · [Architecture](#architecture) · [Features](#features) · [Quick Start](#quick-start) · [Security](#security) · [Contributing](CONTRIBUTING.md) · [Architecture Details](ARCHITECTURE.md)
+[Why I Built This](#why-i-built-this) · [Philosophy](#philosophy) · [Comparison](#how-aouda-compares) · [Architecture](#architecture) · [Features](#features) · [Quick Start](#quick-start) · [Security](#security) · [Contributing](CONTRIBUTING.md) · [Architecture Details](ARCHITECTURE.md)
 
 </div>
 
 ---
 
-## Why I Built Aouda
+## Why I Built This
 
 Most personal AI agents are either toys or liability. Toy projects answer questions and maybe send a Slack message. Framework agents hand an LLM unrestricted shell access, call it "autonomous," and hope for the best.
 
