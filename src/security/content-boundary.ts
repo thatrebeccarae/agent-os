@@ -1,4 +1,26 @@
 import crypto from 'node:crypto';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+// ── Persistent injection audit log ──────────────────────────────────
+
+const INJECTION_LOG_DIR = join(process.cwd(), 'logs');
+const INJECTION_LOG_FILE = join(INJECTION_LOG_DIR, 'injection-audit.jsonl');
+
+function logInjectionEvent(source: string, patterns: string[]): void {
+  try {
+    mkdirSync(INJECTION_LOG_DIR, { recursive: true });
+    const entry = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      event: 'injection_detected',
+      source,
+      patterns,
+    });
+    appendFileSync(INJECTION_LOG_FILE, entry + '\n');
+  } catch {
+    // Best-effort — don't crash on log write failure
+  }
+}
 
 // ── Unicode homoglyphs that look like angle brackets / boundary markers ──
 
@@ -172,6 +194,7 @@ export function wrapAndDetect(content: string, source: string): string {
   const injections = detectInjectionPatterns(content);
   if (injections.length > 0) {
     console.warn(`[security] Injection pattern detected in ${source}: ${injections.join(', ')}`);
+    logInjectionEvent(source, injections);
     if (_injectionCallback) {
       _injectionCallback(source, injections);
     }

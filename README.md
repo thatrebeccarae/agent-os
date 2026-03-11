@@ -4,14 +4,14 @@
 
 **A security-first personal AI agent.** Single-user, self-hosted, 42 tools, 9,500 lines of TypeScript, 11 production dependencies, OWASP ASI-aligned. Telegram-native with Gmail, Calendar, browser automation, RSS, workflow orchestration, and Claude Code handoff -- all with human-in-the-loop approval.
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-ESM-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](#)
-[![Node](https://img.shields.io/badge/Node-%3E%3D%2022-339933?style=for-the-badge&logo=node.js&logoColor=white)](#)
-[![Security](https://img.shields.io/badge/Security-OWASP%20ASI-E86E2C?style=for-the-badge&logo=owasp&logoColor=white)](SECURITY.md)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Rebecca%20Rae%20Barton-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/in/rebeccaraebarton)
-[![X](https://img.shields.io/badge/X-@rebeccarae-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/rebeccarae)
-[![GitHub stars](https://img.shields.io/github/stars/thatrebeccarae/aouda?style=for-the-badge&logo=github&color=181717)](https://github.com/thatrebeccarae/aouda/stargazers)
-[![License](https://img.shields.io/badge/License-MIT-0A66C2?style=for-the-badge)](LICENSE)
-[![Clone](https://img.shields.io/badge/Clone-git%20clone-f78166?style=for-the-badge&logo=git&logoColor=white)](https://github.com/thatrebeccarae/aouda)
+[![TypeScript](https://img.shields.io/badge/TypeScript-ESM-555?style=for-the-badge&labelColor=007ACC&logo=typescript&logoColor=white)](#)
+[![Node](https://img.shields.io/badge/Node-%3E%3D%2022-555?style=for-the-badge&labelColor=6DA55F&logo=node.js&logoColor=white)](#)
+[![Security](https://img.shields.io/badge/Security-OWASP%20ASI-555?style=for-the-badge&labelColor=000000&logo=owasp&logoColor=white)](SECURITY.md)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Rebecca%20Rae%20Barton-555?style=for-the-badge&labelColor=0077B5&logo=linkedin&logoColor=white)](https://linkedin.com/in/rebeccaraebarton)
+[![X](https://img.shields.io/badge/X-@rebeccarae-555?style=for-the-badge&labelColor=000000&logo=x&logoColor=white)](https://x.com/rebeccarae)
+[![GitHub stars](https://img.shields.io/github/stars/thatrebeccarae/aouda?style=for-the-badge&logo=github&color=121011)](https://github.com/thatrebeccarae/aouda/stargazers)
+[![License](https://img.shields.io/badge/License-MIT-555?style=for-the-badge&labelColor=353535)](LICENSE)
+[![Clone](https://img.shields.io/badge/Clone-git%20clone-555?style=for-the-badge&labelColor=F05033&logo=git&logoColor=white)](https://github.com/thatrebeccarae/aouda)
 
 <br>
 
@@ -26,7 +26,7 @@ git clone https://github.com/thatrebeccarae/aouda.git
 <br>
 <br>
 
-[Why I Built This](#why-i-built-this) · [Philosophy](#philosophy) · [Comparison](#how-aouda-compares) · [Architecture](#architecture) · [Features](#features) · [Quick Start](#quick-start) · [Security](#security) · [Contributing](CONTRIBUTING.md) · [Architecture Details](ARCHITECTURE.md)
+[Why I Built This](#why-i-built-this) · [Who This Is For](#who-this-is-for) · [Getting Started](#getting-started) · [Philosophy](#philosophy) · [How Aouda Compares](#how-aouda-compares) · [Architecture](#architecture) · [Features](#features) · [Configuration](#configuration) · [Personality](#personality) · [Security](#security) · [Optional Integrations](#optional-integrations) · [Project Structure](#project-structure) · [Contributing](#contributing) · [License](#license)
 
 </div>
 
@@ -41,6 +41,43 @@ Aouda started after [OpenClaw](https://github.com/openclaw/openclaw) -- the most
 Aouda is an alternative -- same core functionality without the attack surface. Single-user, single-operator, 42 tools. Every external data path wrapped in content boundaries. Every shell command through a 4-layer permission system. Claude Code handoff with remote control sessions. Dangerous operations require human approval via Telegram. No remote skill loading, no marketplace, no multi-tenancy.
 
 An active project and open-sourced as-is. Fork it, gut it, make it yours.
+
+---
+
+## Who This Is For
+
+- **Solo operators** who want an AI agent with real tool access (email, calendar, shell) but refuse to run one with 430,000 lines of unaudited code
+- **Security-conscious engineers** who need content boundary isolation and human-in-the-loop approval before an LLM touches production systems
+- **Self-hosters** who already run services like Miniflux, n8n, or Ollama and want an agent that integrates with their existing stack
+- **Claude Code users** who want to delegate coding tasks to an autonomous agent with Telegram-based approval for dangerous operations
+- **Tinkerers** who want a small, readable TypeScript codebase they can fork and reshape without reverse-engineering a framework
+
+---
+
+## Getting Started
+
+```bash
+git clone https://github.com/thatrebeccarae/aouda.git
+cd aouda
+pnpm install
+cp .env.example .env        # add your API keys and Telegram bot token
+cp config/soul.example.md config/soul.md   # customize personality
+pnpm dev
+```
+
+**Requirements:**
+- **macOS** -- developed and tested on macOS (Apple Silicon). Linux should work but is untested. Windows is not supported.
+- Node.js >= 22
+- pnpm
+- A Telegram bot token ([BotFather](https://t.me/botfather))
+- At least one LLM API key (Anthropic, OpenAI, or Gemini) -- or a running Ollama instance
+
+The agent starts with only what you configure. No Gmail credentials? Gmail tools
+are disabled. No Miniflux? RSS features are skipped. Everything degrades
+gracefully.
+
+> **Note:** A `pnpm setup` wizard is planned but not yet implemented. For now,
+> edit `.env` manually.
 
 ---
 
@@ -131,33 +168,6 @@ What's in the missing 420,500 lines? Attack surface.
 - **Skills framework** -- Drop-in plugin system (`skills/` directory)
 - **Configurable personality** -- `soul.md` defines voice, values, and behavior (see [Personality](#personality))
 - **Vault integration** -- Read/write/search an Obsidian vault or any file tree
-
----
-
-## Quick Start
-
-```bash
-git clone https://github.com/thatrebeccarae/aouda.git
-cd aouda
-pnpm install
-cp .env.example .env        # add your API keys and Telegram bot token
-cp config/soul.example.md config/soul.md   # customize personality
-pnpm dev
-```
-
-**Requirements:**
-- **macOS** -- developed and tested on macOS (Apple Silicon). Linux should work but is untested. Windows is not supported.
-- Node.js >= 22
-- pnpm
-- A Telegram bot token ([BotFather](https://t.me/botfather))
-- At least one LLM API key (Anthropic, OpenAI, or Gemini) -- or a running Ollama instance
-
-The agent starts with only what you configure. No Gmail credentials? Gmail tools
-are disabled. No Miniflux? RSS features are skipped. Everything degrades
-gracefully.
-
-> **Note:** A `pnpm setup` wizard is planned but not yet implemented. For now,
-> edit `.env` manually.
 
 ---
 
@@ -308,4 +318,4 @@ See `CONTRIBUTING.md`.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE) for details.

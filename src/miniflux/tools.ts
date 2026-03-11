@@ -5,6 +5,7 @@
  */
 
 import type { Tool } from '../agent/tools.js';
+import { wrapAndDetect } from '../security/content-boundary.js';
 import {
   isMinifluxConfigured,
   searchEntries,
@@ -19,8 +20,9 @@ function formatEntry(e: { id: number; title: string; url: string; author: string
     month: 'short',
     day: 'numeric',
   });
-  const author = e.author ? ` — ${e.author}` : '';
-  return `[${e.id}] ${e.title}${author} (${e.feed.title}, ${date})\n  ${e.url}`;
+  const safeTitle = wrapAndDetect(e.title, `rss:title:${e.feed.title}`);
+  const author = e.author ? ` — ${wrapAndDetect(e.author, `rss:author:${e.feed.title}`)}` : '';
+  return `[${e.id}] ${safeTitle}${author} (${e.feed.title}, ${date})\n  ${e.url}`;
 }
 
 export function getMinifluxTools(): Tool[] {
