@@ -22,3 +22,4 @@ DOCKER_SERVICES=
 
 # Package author emails in lockfiles
 i@izs\.me
+security@aouda\.dev

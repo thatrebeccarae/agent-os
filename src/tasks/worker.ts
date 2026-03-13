@@ -14,6 +14,7 @@ import type { Task } from './types.js';
 import type { TaskQueue } from './queue.js';
 import { runAgentLoop } from '../agent/loop.js';
 import { getToolDefinitions } from '../agent/tools.js';
+import { buildSystemPrompt } from '../agent/prompt.js';
 import { AGENT_NAME } from '../config/identity.js';
 
 // ── Worker Options ──────────────────────────────────────────────────
@@ -147,15 +148,22 @@ export class TaskWorker {
    * Execute a single task using the agent loop pattern with a timeout.
    */
   private async executeTask(task: Task): Promise<string> {
-    const systemPrompt = [
-      `You are ${AGENT_NAME} executing a background task.`,
-      `Task: ${task.title}`,
-      task.description ? `Description: ${task.description}` : '',
+    // Use the full system prompt (with domain knowledge, tool descriptions, etc.)
+    // plus a task-specific preamble so the LLM has full context.
+    const basePrompt = buildSystemPrompt();
+    const taskPreamble = [
       '',
-      'Complete this task and return a clear summary of the result.',
+      '## Background Task',
+      '',
+      `You are executing a background task. Your text response will be sent to the operator via their messaging channel automatically — you do NOT need a special tool to reach them. Just write your response as plain text.`,
+      '',
+      `Task: ${task.title}`,
+      task.description ? `\nDetails:\n${task.description}` : '',
     ]
       .filter(Boolean)
       .join('\n');
+
+    const systemPrompt = basePrompt + taskPreamble;
 
     const userMessage = task.description ?? task.title;
     const tools = getToolDefinitions();

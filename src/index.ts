@@ -13,6 +13,8 @@ import { TaskQueue } from './tasks/queue.js';
 import { TaskWorker } from './tasks/worker.js';
 import { Scheduler } from './tasks/scheduler.js';
 import { setTaskQueue as setToolsTaskQueue, setClaudeCodeExecutor, setRemoteControlManager } from './agent/tools.js';
+import { SchedulerStore, SchedulerEngine, ScheduleApprovalManager, setSchedulerEngine, setScheduleApprovalManager } from './scheduler/index.js';
+import { GoalStore, GoalApprovalManager, GoalEvaluator, setGoalStore, setGoalApprovalManager, setGoalEvaluator, setGoalAgentStore, activatePendingPlan } from './goals/index.js';
 import { loadSkills } from './skills/loader.js';
 import { isSkillsEnabled } from './skills/config.js';
 import { isProactiveEnabled, isInboxMonitorEnabled, isCalendarMonitorEnabled, getOwnerSessionId } from './inbox/config.js';
@@ -33,6 +35,7 @@ import { setInjectionCallback, setHeightenedSecurity } from './security/content-
 import { PACKAGE_NAME } from './config/identity.js';
 import { setExtractStore } from './memory/extract.js';
 import { initTwitterTools } from './twitter/tools.js';
+import { initOnboardingSchema } from './onboarding/wizard.js';
 import { isQuietHours } from './config/quiet-hours.js';
 import type { AlertOptions } from './config/quiet-hours.js';
 
@@ -58,6 +61,7 @@ if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY && !process.en
 const store = new AgentStore();
 setExtractStore(store);
 initTwitterTools(store);
+initOnboardingSchema(store);
 const router = new LLMRouter();
 const allowedUsers = process.env.TELEGRAM_ALLOWED_USERS?.split(',').map((s) => s.trim()).filter(Boolean);
 const telegram = new TelegramChannel(TELEGRAM_BOT_TOKEN, allowedUsers);
@@ -109,6 +113,45 @@ const taskWorker = new TaskWorker({
 
 const scheduler = new Scheduler(taskQueue);
 
+// ── Self-scheduling engine (Phase 28) ────────────────────────────
+const schedulerStore = new SchedulerStore(store.db);
+const schedulerEngine = new SchedulerEngine({
+  store: schedulerStore,
+  taskQueue,
+  notifyCallback: async (sessionId, message) => {
+    if (sessionId) {
+      await gateway.sendToSession(sessionId, message);
+    }
+  },
+});
+setSchedulerEngine(schedulerEngine);
+
+// ── Goal persistence (Phase 29) ──────────────────────────────────
+const goalStore = new GoalStore(store.db);
+setGoalStore(goalStore);
+setGoalAgentStore(store);
+
+const goalEvaluator = new GoalEvaluator({
+  store: goalStore,
+  agentStore: store,
+  router,
+  notifyCallback: async (message) => {
+    if (isProactiveEnabled()) {
+      const ownerSessionId = getOwnerSessionId()!;
+      if (!isQuietHours()) {
+        await gateway.sendToSession(ownerSessionId, message);
+      }
+    }
+  },
+});
+setGoalEvaluator(goalEvaluator);
+
+// Run goal evaluations every hour — evaluateDueGoals() checks each goal's
+// individual review_cadence_hours to decide which ones actually need eval
+const goalEvalInterval = setInterval(() => {
+  void goalEvaluator.evaluateDueGoals();
+}, 60 * 60 * 1000);
+
 // Direct cleanup of old tasks every 24 hours (no LLM call needed)
 setInterval(() => taskQueue.cleanupOldTasks(30), 24 * 60 * 60 * 1000);
 
@@ -129,6 +172,7 @@ await gateway.start();
 
 taskWorker.start();
 scheduler.start();
+schedulerEngine.start();
 
 // ---------------------------------------------------------------------------
 // Proactive monitors (Phase 6)
@@ -171,6 +215,34 @@ if (isProactiveEnabled()) {
 }
 
 // ---------------------------------------------------------------------------
+// Schedule approval manager (Phase 28) — needs owner chat ID but not Anthropic
+// ---------------------------------------------------------------------------
+
+let scheduleApprovalMgr: ScheduleApprovalManager | null = null;
+let goalApprovalMgr: GoalApprovalManager | null = null;
+
+if (isProactiveEnabled()) {
+  const ownerChatId = process.env.TELEGRAM_OWNER_CHAT_ID!;
+  const bot = telegram.getBot();
+  scheduleApprovalMgr = new ScheduleApprovalManager(bot, ownerChatId, schedulerStore);
+  setScheduleApprovalManager(scheduleApprovalMgr);
+  console.log('[schedule-approval] Manager ready — schedule jobs require operator approval');
+
+  // Goal approval manager (Phase 29) — 3-gate approval system
+  goalApprovalMgr = new GoalApprovalManager(bot, ownerChatId, goalStore);
+  setGoalApprovalManager(goalApprovalMgr);
+
+  // Wire plan approval callback to activate pending plans
+  goalApprovalMgr.onApproval((goalId, approved, type) => {
+    if (type === 'plan' && approved) {
+      void activatePendingPlan(goalId);
+    }
+  });
+
+  console.log('[goals] Approval manager ready — goals require operator activation');
+}
+
+// ---------------------------------------------------------------------------
 // Claude Code handoff (Phase 7)
 // ---------------------------------------------------------------------------
 
@@ -184,12 +256,21 @@ if (isProactiveEnabled() && process.env.ANTHROPIC_API_KEY) {
 
   const approvalManager = new ApprovalManager(bot, ownerChatId);
 
-  // Wire up callback query handler for inline keyboard approvals
+  // Wire up callback query handler for inline keyboard approvals (chained)
   telegram.onCallbackQuery(async (data, answerCallback) => {
+    // Try goal approvals first, then schedule, then Claude Code
+    if (goalApprovalMgr?.handleCallback(data)) {
+      await answerCallback();
+      return;
+    }
+    if (scheduleApprovalMgr?.handleCallback(data)) {
+      await answerCallback();
+      return;
+    }
     const handled = approvalManager.handleCallback(data);
     await answerCallback();
     if (!handled) {
-      console.warn('[claude-code] Unrecognized callback query:', data);
+      console.warn('[callback] Unrecognized callback query:', data);
     }
   });
 
@@ -224,6 +305,18 @@ if (isProactiveEnabled() && process.env.ANTHROPIC_API_KEY) {
   setRemoteControlManager(remoteControlManager);
   console.log('[remote-control] Manager ready — start_remote_session tool enabled');
 } else {
+  // No Claude Code, but goal/schedule approvals still need a callback handler
+  if (scheduleApprovalMgr || goalApprovalMgr) {
+    telegram.onCallbackQuery(async (data, answerCallback) => {
+      if (goalApprovalMgr?.handleCallback(data)) {
+        await answerCallback();
+        return;
+      }
+      scheduleApprovalMgr?.handleCallback(data);
+      await answerCallback();
+    });
+  }
+
   if (!process.env.ANTHROPIC_API_KEY) {
     console.log('[claude-code] Executor disabled (no ANTHROPIC_API_KEY)');
   } else {
@@ -350,6 +443,10 @@ async function shutdown(): Promise<void> {
   inboxMonitor?.stop();
   dockerMonitor?.stop();
   calendarMonitor?.stop();
+  clearInterval(goalEvalInterval);
+  goalApprovalMgr?.cancelAll();
+  scheduleApprovalMgr?.cancelAll();
+  schedulerEngine.stop();
   scheduler.stop();
   taskWorker.stop();
   healthServer.close();

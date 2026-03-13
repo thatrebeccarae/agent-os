@@ -10,6 +10,7 @@ const SOUL_PATH = path.resolve(process.cwd(), "config", "soul.md");
  */
 export interface PromptOptions {
   memoryContext?: string;
+  onboardingContext?: string;
 }
 
 export function buildSystemPrompt(options?: PromptOptions): string {
@@ -93,6 +94,10 @@ export function buildSystemPrompt(options?: PromptOptions): string {
     '- When user says "fix X in clay", call handoff_to_claude_code with repo="clay"',
     "",
   ];
+
+  if (options?.onboardingContext) {
+    sections.push("", "## Onboarding", "", options.onboardingContext);
+  }
 
   if (options?.memoryContext) {
     sections.push("", "## Relevant Memory", "", options.memoryContext);

@@ -68,7 +68,7 @@ export function getBrowserTools(): Tool[] {
           let textContent = await page.evaluate(() =>
             document.body?.innerText?.slice(0, 5000) ?? '',
           );
-          const links = await page.evaluate((max) => {
+          const links = await page.evaluate((max: number) => {
             const anchors = Array.from(document.querySelectorAll('a[href]'));
             return anchors.slice(0, max).map((a) => ({
               text: (a as HTMLAnchorElement).innerText.trim().slice(0, 100),
@@ -80,8 +80,8 @@ export function getBrowserTools(): Tool[] {
           textContent = wrapAndDetect(textContent, `webpage:${url}`);
 
           const linkLines = links
-            .filter((l) => l.text || l.href)
-            .map((l) => `  ${l.text || '(no text)'} → ${l.href}`)
+            .filter((l: { text: string; href: string }) => l.text || l.href)
+            .map((l: { text: string; href: string }) => `  ${l.text || '(no text)'} → ${l.href}`)
             .join('\n');
 
           return [
@@ -154,7 +154,7 @@ export function getBrowserTools(): Tool[] {
 
         return withPage(url, async (page) => {
           const results = await page.evaluate(
-            ({ sel, attr, max }) => {
+            ({ sel, attr, max }: { sel: string; attr: string | null; max: number }) => {
               const elements = Array.from(document.querySelectorAll(sel));
               return elements.slice(0, max).map((el, i) => {
                 const value = attr
@@ -289,7 +289,7 @@ export function getBrowserTools(): Tool[] {
 
           if (selector) {
             content = await page.evaluate(
-              ({ sel, max }) => {
+              ({ sel, max }: { sel: string; max: number }) => {
                 const el = document.querySelector(sel);
                 if (!el) return `(no element matching "${sel}")`;
                 return (el as HTMLElement).innerText?.slice(0, max) ?? '';
@@ -297,7 +297,7 @@ export function getBrowserTools(): Tool[] {
               { sel: selector, max: MAX_TEXT_CHARS },
             );
           } else {
-            content = await page.evaluate((max) =>
+            content = await page.evaluate((max: number) =>
               document.body?.innerText?.slice(0, max) ?? '',
             MAX_TEXT_CHARS);
           }

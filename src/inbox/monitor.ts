@@ -214,11 +214,12 @@ export class InboxMonitor {
           `and the subject suggests a real conversation (interview, meeting, follow-up, etc.), ALERT ${OPERATOR_NAME} ` +
           `that a potentially important email was caught by the spam filter. Include the sender, subject, and message ID.\n\n` +
           `## Actions (in priority order)\n\n` +
-          `### 1. Alert ${OPERATOR_NAME} via Telegram for urgent/time-sensitive items\n` +
+          `### 1. Alert ${OPERATOR_NAME} about urgent/time-sensitive items\n` +
+          `- Your text response IS the alert — it gets delivered automatically. Just write what ${OPERATOR_NAME} needs to know.\n` +
           `- Bills/payments due, account issues, scheduling conflicts, or replies from real people that need ${OPERATOR_NAME}'s personal attention.\n` +
           `- Describe what the OTHER PARTY said or needs — ${OPERATOR_NAME} knows what they sent.\n` +
           `- Mention which account (${label}) the email arrived in.\n` +
-          `- Keep alerts plain text — no emoji in Telegram messages.\n\n` +
+          `- Keep alerts plain text — no emoji.\n\n` +
           `### 2. Draft replies for emails that need a response\n` +
           `- If someone is asking a question, requesting a meeting, following up, or otherwise expecting a reply — draft one.\n` +
           `- Use gmail_read to get the full message, then gmail_read_thread for context if it's part of a conversation.\n` +
@@ -284,7 +285,7 @@ export class InboxMonitor {
       this.taskQueue.createTask({
         title: 'Inbox digest: actionable emails',
         description:
-          `Review these unread emails and send ${OPERATOR_NAME} a Telegram summary of ONLY items that need action or a response.\n\n` +
+          `Review these unread emails and summarize ONLY items that need action or a response. Your text response gets delivered to ${OPERATOR_NAME} automatically.\n\n` +
           `${wrappedMessages}\n\n` +
           `Rules:\n` +
           `- Skip newsletters, marketing, automated notifications, Google Drive/Docs access requests.\n` +
@@ -402,7 +403,7 @@ export class InboxMonitor {
         title: 'Spam scan: potential false positives',
         description:
           `Daily spam scan found ${rescueCandidates.length} message(s) that may be false positives. ` +
-          `Review each one and alert ${OPERATOR_NAME} via Telegram about any that appear to be from real people.\n\n` +
+          `Review each one. Your text response gets delivered to ${OPERATOR_NAME} automatically — just describe any that appear to be from real people.\n\n` +
           `Candidates:\n${wrappedCandidates}\n\n` +
           `Rules:\n` +
           `- Use gmail_read (account as noted) to read the full message before deciding.\n` +

@@ -1,6 +1,9 @@
 import type { LLMMessage } from '../llm/types.js';
 import type { LLMRouter } from '../llm/router.js';
 import type { AgentStore } from './store.js';
+import { embed } from './embeddings.js';
+import { storeEmbedding } from './vector-store.js';
+import { detectGoalSignals, extractGoalParams, buildConfirmationQuestion } from '../goals/extract.js';
 
 // ── Store ref (set via init) ──────────────────────────────────────
 
@@ -187,17 +190,118 @@ export async function extractAndStoreFacts(
 
     const facts = await extractFacts(router, recentMessages);
 
+    const storedFacts: { id: number; text: string }[] = [];
     for (const fact of facts) {
       const tag = hasExternalContent
         ? `[${fact.category}] [from_external_content] ${fact.content}`
         : `[${fact.category}] ${fact.content}`;
-      store.addFact(tag, sessionId);
+      const stored = store.addFact(tag, sessionId);
+      storedFacts.push({ id: stored.id, text: tag });
     }
 
-    if (facts.length > 0) {
-      console.log(`[extract] Stored ${facts.length} fact(s) from session ${sessionId}`);
+    if (storedFacts.length > 0) {
+      console.log(`[extract] Stored ${storedFacts.length} fact(s) from session ${sessionId}`);
+
+      // Fire-and-forget: embed each new fact for vector search
+      void embedNewFacts(store, storedFacts);
+    }
+
+    // Fire-and-forget: goal signal detection (Phase 29)
+    // Skip if the conversation contains external content (injection risk)
+    if (!hasExternalContent) {
+      void detectAndStoreGoalSignals(router, store, sessionId, recentMessages);
     }
   } catch (err) {
     console.error('[extract] Fact extraction failed (non-fatal):', (err as Error).message);
+  }
+}
+
+// ── Embedding integration ─────────────────────────────────────────
+
+/**
+ * Embed newly stored facts for vector search. Fire-and-forget — failures
+ * are logged but never disrupt the main flow. Facts without embeddings
+ * are still searchable via FTS5.
+ */
+async function embedNewFacts(
+  store: AgentStore,
+  facts: { id: number; text: string }[],
+): Promise<void> {
+  try {
+    for (const fact of facts) {
+      const vec = await embed(fact.text);
+      if (vec) {
+        storeEmbedding(store, fact.id, vec);
+      }
+    }
+  } catch (err) {
+    console.warn('[extract] Embedding failed (non-fatal):', (err as Error).message);
+  }
+}
+
+// ── Goal signal detection (Phase 29) ──────────────────────────────
+
+/**
+ * Run goal signal detection alongside fact extraction.
+ * Pass 1 (regex heuristics) is always run. Pass 2 (LLM extraction)
+ * only fires for high-confidence signals.
+ *
+ * Mid-confidence signals store a suggestion fact that Agent can
+ * surface as a confirmation question in her next response.
+ *
+ * Fire-and-forget — never disrupts the main flow.
+ */
+async function detectAndStoreGoalSignals(
+  router: LLMRouter,
+  store: AgentStore,
+  sessionId: string,
+  recentMessages: LLMMessage[],
+): Promise<void> {
+  try {
+    // Extract user-only messages for signal detection
+    const userTexts = recentMessages
+      .filter((m) => m.role === 'user')
+      .map((m) => {
+        if (typeof m.content === 'string') return m.content;
+        if (Array.isArray(m.content)) {
+          return m.content
+            .filter((b): b is { type: 'text'; text: string } => 'text' in b)
+            .map((b) => b.text)
+            .join(' ');
+        }
+        return '';
+      })
+      .filter((t) => t.length > 0);
+
+    if (userTexts.length === 0) return;
+
+    // Pass 1: significance filtering (no LLM call)
+    const signal = detectGoalSignals(userTexts);
+    if (!signal) return;
+
+    console.log(`[goal-extract] Signal detected (confidence: ${signal.confidence.toFixed(2)}, signals: ${signal.matchedSignals.join(', ')})`);
+
+    if (signal.confidence >= 0.8) {
+      // Pass 2: structured parameterization (cheap LLM call)
+      const goalParams = await extractGoalParams(router, signal.sourceText);
+      if (goalParams) {
+        // Store as a high-priority fact that the agent loop can act on
+        store.addFact(
+          `[goal_signal] ${JSON.stringify(goalParams)}`,
+          sessionId,
+        );
+        console.log(`[goal-extract] Extracted goal: "${goalParams.title}"`);
+      }
+    } else {
+      // Mid-confidence: store a confirmation question suggestion
+      const question = buildConfirmationQuestion(signal);
+      store.addFact(
+        `[goal_suggestion] ${question}`,
+        sessionId,
+      );
+      console.log('[goal-extract] Stored goal confirmation suggestion');
+    }
+  } catch (err) {
+    console.warn('[goal-extract] Goal detection failed (non-fatal):', (err as Error).message);
   }
 }

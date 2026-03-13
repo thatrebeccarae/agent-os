@@ -2,12 +2,13 @@ import type { ChannelAdapter, InboundMessage, OutboundMessage } from '../channel
 import type { LLMMessage } from '../llm/types.js';
 import { LLMRouter } from '../llm/router.js';
 import { AgentStore } from '../memory/store.js';
-import { searchMemory } from '../memory/search.js';
+import { searchMemory, hybridSearch } from '../memory/search.js';
 import { runAgentLoop } from '../agent/loop.js';
 import { buildSystemPrompt } from '../agent/prompt.js';
 import { getToolDefinitions } from '../agent/tools.js';
 import { shouldExtract, extractAndStoreFacts } from '../memory/extract.js';
 import { wrapExternalContent } from '../security/content-boundary.js';
+import { isOnboardingComplete, getOnboardingPrompt, getPreferencesContext } from '../onboarding/wizard.js';
 
 /**
  * Gateway connects channel adapters to the agent loop.
@@ -116,11 +117,19 @@ export class Gateway {
           content: m.content,
         }));
 
-      // 4. Search memory for relevant context
-      const memoryContext = this.buildMemoryContext(inbound.text);
+      // 4. Search memory for relevant context (hybrid FTS + vector)
+      const memoryContext = await this.buildMemoryContext(inbound.text);
+
+      // 4b. Check onboarding status — inject onboarding prompt or preferences
+      let onboardingContext: string | undefined;
+      if (!isOnboardingComplete(this.store)) {
+        onboardingContext = getOnboardingPrompt();
+      } else {
+        onboardingContext = getPreferencesContext(this.store);
+      }
 
       // 5. Build system prompt
-      const systemPrompt = buildSystemPrompt({ memoryContext });
+      const systemPrompt = buildSystemPrompt({ memoryContext, onboardingContext });
 
       // 6. Wrap non-owner channel messages with content boundaries
       const agentInput = inbound.channelType === 'slack'
@@ -184,20 +193,20 @@ export class Gateway {
   }
 
   /**
-   * Search long-term memory (FTS) and gather recent short-term facts.
+   * Search long-term memory (hybrid FTS + vector) and gather recent short-term facts.
    * Returns a combined context string, or undefined if nothing relevant was found.
    */
-  private buildMemoryContext(query: string): string | undefined {
+  private async buildMemoryContext(query: string): Promise<string | undefined> {
     const sections: string[] = [];
 
-    // Long-term: FTS search for facts related to the user's message
+    // Long-term: hybrid search (FTS5 + vector similarity with temporal decay)
     try {
-      const ftsResult = searchMemory(this.store, query, 5);
-      if (!ftsResult.startsWith('[No relevant')) {
-        sections.push(ftsResult);
+      const hybridResult = await hybridSearch(this.store, query, 5);
+      if (!hybridResult.startsWith('[No relevant')) {
+        sections.push(hybridResult);
       }
     } catch {
-      // FTS match syntax errors are non-fatal — skip silently
+      // Search failures are non-fatal — skip silently
     }
 
     // Short-term: most recent facts (session-agnostic recency)
