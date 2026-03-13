@@ -9,3 +9,4 @@ data/
 config/soul.md
 *.plist
 *.log
+.syncthing.*.tmp
